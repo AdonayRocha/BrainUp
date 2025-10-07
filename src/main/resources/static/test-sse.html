@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BrainUp - Teste SSE</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        
+        .panel {
+            flex: 1;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        
+        .admin-panel {
+            background-color: #f0f8ff;
+        }
+        
+        .player-panel {
+            background-color: #f8fff0;
+        }
+        
+        .log {
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            margin-top: 10px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        
+        .event {
+            margin: 5px 0;
+            padding: 5px;
+            border-radius: 3px;
+        }
+        
+        .event.player-joined {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .event.player-exited {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .event.connected {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        input, button {
+            padding: 8px 12px;
+            margin: 5px;
+        }
+        
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        button:hover {
+            background-color: #0056b3;
+        }
+        
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            background-color: #e9ecef;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>BrainUp - Teste de Server-Sent Events</h1>
+    
+    <div class="container">
+        <!-- Painel do Admin -->
+        <div class="panel admin-panel">
+            <h2>🔧 Painel do Administrador</h2>
+            <button id="connectAdmin">Conectar como Admin</button>
+            <button id="disconnectAdmin" disabled>Desconectar Admin</button>
+            
+            <div class="status">
+                <strong>Status:</strong> <span id="adminStatus">Desconectado</span>
+            </div>
+            
+            <div class="log" id="adminLog">
+                <div class="event">Aguardando conexão do administrador...</div>
+            </div>
+        </div>
+        
+        <!-- Painel do Jogador -->
+        <div class="panel player-panel">
+            <h2>🎮 Painel do Jogador</h2>
+            <input type="text" id="playerName" placeholder="Digite seu nome">
+            <button id="joinQuiz">Entrar no Quiz</button>
+            <button id="exitQuiz" disabled>Sair do Quiz</button>
+            
+            <div class="status">
+                <strong>Player ID:</strong> <span id="playerId">-</span><br>
+                <strong>Status:</strong> <span id="playerStatus">Desconectado</span>
+            </div>
+            
+            <div class="log" id="playerLog">
+                <div class="event">Digite seu nome e clique em "Entrar no Quiz"</div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let adminEventSource = null;
+        let playerEventSource = null;
+        let currentPlayerId = null;
+        
+        const API_BASE = 'http://localhost:8080/api';
+        
+        // Elementos do DOM
+        const connectAdminBtn = document.getElementById('connectAdmin');
+        const disconnectAdminBtn = document.getElementById('disconnectAdmin');
+        const adminStatus = document.getElementById('adminStatus');
+        const adminLog = document.getElementById('adminLog');
+        
+        const playerNameInput = document.getElementById('playerName');
+        const joinQuizBtn = document.getElementById('joinQuiz');
+        const exitQuizBtn = document.getElementById('exitQuiz');
+        const playerId = document.getElementById('playerId');
+        const playerStatus = document.getElementById('playerStatus');
+        const playerLog = document.getElementById('playerLog');
+        
+        // Função para adicionar log
+        function addLog(logElement, message, className = '') {
+            const div = document.createElement('div');
+            div.className = `event ${className}`;
+            div.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logElement.appendChild(div);
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        // Conectar Admin
+        connectAdminBtn.addEventListener('click', () => {
+            adminEventSource = new EventSource(`${API_BASE}/stream/admin`);
+            
+            adminEventSource.onopen = () => {
+                adminStatus.textContent = 'Conectado';
+                connectAdminBtn.disabled = true;
+                disconnectAdminBtn.disabled = false;
+                addLog(adminLog, 'Conectado ao stream do admin', 'connected');
+            };
+            
+            adminEventSource.addEventListener('admin.connected', (event) => {
+                addLog(adminLog, 'Admin conectado com sucesso', 'connected');
+            });
+            
+            adminEventSource.addEventListener('player.joined', (event) => {
+                const player = JSON.parse(event.data);
+                addLog(adminLog, `🟢 Jogador entrou: ${player.name} (ID: ${player.id})`, 'player-joined');
+            });
+            
+            adminEventSource.addEventListener('player.exited', (event) => {
+                const player = JSON.parse(event.data);
+                addLog(adminLog, `🔴 Jogador saiu: ${player.name} (ID: ${player.id})`, 'player-exited');
+            });
+            
+            adminEventSource.onerror = () => {
+                addLog(adminLog, 'Erro na conexão do admin');
+                adminStatus.textContent = 'Erro';
+                connectAdminBtn.disabled = false;
+                disconnectAdminBtn.disabled = true;
+            };
+        });
+        
+        // Desconectar Admin
+        disconnectAdminBtn.addEventListener('click', () => {
+            if (adminEventSource) {
+                adminEventSource.close();
+                adminEventSource = null;
+            }
+            adminStatus.textContent = 'Desconectado';
+            connectAdminBtn.disabled = false;
+            disconnectAdminBtn.disabled = true;
+            addLog(adminLog, 'Admin desconectado');
+        });
+        
+        // Entrar no Quiz
+        joinQuizBtn.addEventListener('click', async () => {
+            const name = playerNameInput.value.trim();
+            if (!name) {
+                alert('Por favor, digite seu nome');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/start`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ playerName: name })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    currentPlayerId = data.playerId;
+                    playerId.textContent = currentPlayerId;
+                    
+                    // Conectar ao stream do jogador
+                    playerEventSource = new EventSource(`${API_BASE}/stream/player/${currentPlayerId}`);
+                    
+                    playerEventSource.onopen = () => {
+                        playerStatus.textContent = 'Conectado';
+                        joinQuizBtn.disabled = true;
+                        exitQuizBtn.disabled = false;
+                        playerNameInput.disabled = true;
+                        addLog(playerLog, `Conectado ao quiz como ${name}`, 'connected');
+                    };
+                    
+                    playerEventSource.addEventListener('connected', (event) => {
+                        addLog(playerLog, 'Conectado ao stream do jogador', 'connected');
+                    });
+                    
+                    playerEventSource.onerror = () => {
+                        addLog(playerLog, 'Erro na conexão do jogador');
+                        playerStatus.textContent = 'Erro';
+                    };
+                    
+                } else {
+                    alert('Erro ao entrar no quiz');
+                }
+            } catch (error) {
+                alert('Erro na requisição: ' + error.message);
+            }
+        });
+        
+        // Sair do Quiz
+        exitQuizBtn.addEventListener('click', async () => {
+            if (!currentPlayerId) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/exit/${currentPlayerId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    if (playerEventSource) {
+                        playerEventSource.close();
+                        playerEventSource = null;
+                    }
+                    
+                    playerStatus.textContent = 'Desconectado';
+                    joinQuizBtn.disabled = false;
+                    exitQuizBtn.disabled = true;
+                    playerNameInput.disabled = false;
+                    playerId.textContent = '-';
+                    currentPlayerId = null;
+                    
+                    addLog(playerLog, 'Saiu do quiz', 'player-exited');
+                } else {
+                    alert('Erro ao sair do quiz');
+                }
+            } catch (error) {
+                alert('Erro na requisição: ' + error.message);
+            }
+        });
+        
+        // Limpar conexões ao fechar a página
+        window.addEventListener('beforeunload', () => {
+            if (adminEventSource) {
+                adminEventSource.close();
+            }
+            if (playerEventSource) {
+                playerEventSource.close();
+            }
+        });
+    </script>
+</body>
+</html>
